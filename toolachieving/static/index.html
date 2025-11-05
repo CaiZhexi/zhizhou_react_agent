@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>智能问答</title>
+  <style>
+    :root { --bg:#0b1020; --card:#151b2f; --text:#e6e9f5; --muted:#9aa3b2; --accent:#4f8cff; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-sans-serif, -apple-system, Segoe UI, Roboto, PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, Microsoft YaHei, Helvetica Neue, Arial, "Noto Color Emoji", sans-serif; background: var(--bg); color: var(--text); }
+    .wrap { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
+    .card { background: var(--card); border: 1px solid #222843; border-radius: 12px; padding: 16px; }
+    h1 { font-size: 18px; margin: 0 0 12px; }
+    label { display:block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+    input[type="text"], textarea, select { width: 100%; padding: 10px 12px; border: 1px solid #2a3358; border-radius: 10px; background: #0f1530; color: var(--text); outline: none; }
+    .row { display:flex; gap:8px; flex-wrap: wrap; align-items: center; }
+    button { cursor: pointer; background: var(--accent); color: white; border: none; padding: 10px 14px; border-radius: 10px; font-weight: 600; }
+    button.secondary { background: #2a3358; }
+    .mt8 { margin-top: 8px; }
+    .mt12 { margin-top: 12px; }
+    .mt16 { margin-top: 16px; }
+    pre { background: #0f1530; border:1px solid #2a3358; border-radius: 10px; padding: 10px; overflow:auto; white-space: pre-wrap; word-break: break-word; }
+    ul.items { list-style: none; padding: 0; margin: 0; }
+    ul.items li { padding: 8px 0; border-bottom: 1px dashed #2a3358; }
+    ul.items li:last-child { border-bottom: none; }
+    a { color: #9bc1ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    small { color: var(--muted); }
+    .muted { color: var(--muted); }
+    /* loading spinner */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner { width:16px; height:16px; border:2px solid #222843; border-top-color:#4f8cff; border-radius:50%; display:inline-block; animation: spin 1s linear infinite; margin-right:6px; vertical-align:middle; }
+    .loading { position: fixed; left: 50%; transform: translateX(-50%); bottom: 20px; background:#151b2f; border:1px solid #222843; border-radius:10px; padding:8px 12px; z-index: 1000; }
+    /* chat bubbles */
+    .msg { display:flex; }
+    .msg .bubble { max-width: 90%; padding: 10px 12px; border-radius: 12px; border: 1px solid #2a3358; }
+    .msg.user { justify-content: flex-end; }
+    .msg.user .bubble { background: #1a2142; }
+    .msg.assistant { justify-content: flex-start; }
+    .msg.assistant .bubble { background: #111736; }
+    details { margin-top: 6px; }
+    details > summary { color: #c2c8d8; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div style="display:flex; gap:16px; align-items:flex-start;">
+      <!-- 左列：知识库管理 -->
+      <div style="flex: 0 0 360px; display:flex; flex-direction:column; gap:16px;">
+        <div class="card">
+          <h1>知识库管理（f2）</h1>
+          <label for="kbId">知识库 ID（kb_id）：</label>
+          <input id="kbId" type="text" value="default" />
+          <div class="row mt12">
+            <button id="btnKBStatus" class="secondary">查看状态</button>
+            <button id="btnKBReindex">重建索引</button>
+            <button id="btnKBList" class="secondary">列出文档</button>
+          </div>
+          <div class="mt12">
+            <label>上传文档（支持 txt/md/pdf/docx/xlsx）</label>
+            <input id="kbFiles" type="file" multiple />
+            <div class="row mt8">
+              <button id="btnKBUpload">上传到 raw</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h1>raw 文档列表</h1>
+          <ul id="kbDocs" class="items"></ul>
+        </div>
+
+        <div class="card">
+          <h1>f2 状态 / 操作结果</h1>
+          <pre id="kbRaw">等待操作…</pre>
+        </div>
+      </div>
+
+      <!-- 右列：GPT 风格对话 -->
+      <div style="flex: 1 1 auto; display:flex; flex-direction:column; gap:12px;">
+        <div class="card" style="display:flex; justify-content: space-between; align-items:center; gap:8px;">
+          <div><strong>智能问答</strong> <span class="muted">· 自动选择 f1/f2/f3/llm</span></div>
+          <div class="row" style="gap:6px;">
+            <label class="muted">模式</label>
+            <select id="modeSel" style="width:auto;">
+              <option value="auto" selected>auto</option>
+              <option value="f1">f1</option>
+              <option value="f2">f2</option>
+              <option value="f3">f3</option>
+              <option value="llm">llm</option>
+            </select>
+            <label class="muted">top_k</label>
+            <input id="topK" type="number" value="5" min="1" max="20" style="width:80px;" />
+          </div>
+        </div>
+
+        <div class="card" style="min-height: 540px; display:flex; flex-direction:column;">
+          <div id="msgs" style="flex:1 1 auto; overflow:auto; display:flex; flex-direction:column; gap:10px;"></div>
+          <div class="row mt12">
+            <textarea id="compose" rows="2" placeholder="输入你的问题，回车发送（支持多步计划自动执行）"></textarea>
+            <button id="sendBtn">发送</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="loading" class="loading" style="display:none;"><span class="spinner"></span><span>正在处理…</span></div>
+
+  <script>
+    const msgs = document.getElementById('msgs');
+    const compose = document.getElementById('compose');
+    const sendBtn = document.getElementById('sendBtn');
+    const loading = document.getElementById('loading');
+    const modeSel = document.getElementById('modeSel');
+    const topK = document.getElementById('topK');
+
+    const kbId = document.getElementById('kbId');
+    const kbRaw = document.getElementById('kbRaw');
+    const kbDocs = document.getElementById('kbDocs');
+    const kbFiles = document.getElementById('kbFiles');
+    const btnKBStatus = document.getElementById('btnKBStatus');
+    const btnKBReindex = document.getElementById('btnKBReindex');
+    const btnKBList = document.getElementById('btnKBList');
+    const btnKBUpload = document.getElementById('btnKBUpload');
+
+    function showLoading(show){ loading.style.display = show ? 'block' : 'none'; }
+    function escapeHtml(s){ return String(s || '').replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+    function bubble(role, html) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + role;
+      div.innerHTML = `<div class="bubble">${html}</div>`;
+      msgs.appendChild(div);
+      msgs.scrollTop = msgs.scrollHeight;
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    }
+    function renderItemsList(list) {
+      if (!Array.isArray(list) || list.length === 0) return '<div class="muted">无结果</div>';
+      let html = '<ul class="items">';
+      for (const it of list) {
+        const title = escapeHtml(it.title || it.name || '(无标题)');
+        const url = escapeHtml(it.url || it.link || '#');
+        const snip = escapeHtml(it.snippet || it.summary || '');
+        html += `<li><a href="${url}" target="_blank" rel="noopener">${title}</a>` + (snip ? `<div><small>${snip}</small></div>` : '') + `</li>`;
+      }
+      html += '</ul>';
+      return html;
+    }
+    function renderStepDetail(step) {
+      const tool = step.tool || '-';
+      const sid = step.id || '-';
+      const q = (step.input && step.input.q) ? step.input.q : '';
+      const out = step.output || {};
+      let body = '';
+      if (tool === 'f3') {
+        const code = out.code ? `<details open><summary>代码</summary><pre>${escapeHtml(out.code)}</pre></details>` : '';
+        const stdout = (out.stdout || out.text) ? `<details open><summary>输出</summary><pre>${escapeHtml(out.stdout || out.text || '')}</pre></details>` : '';
+        const result = (out.result !== undefined) ? `<div class=\"muted\">结果：<strong>${escapeHtml(String(out.result))}</strong></div>` : '';
+        body = code + stdout + result;
+      } else if (tool === 'llm') {
+        const text = out.text ? `<details open><summary>回答</summary><pre>${escapeHtml(out.text)}</pre></details>` : '';
+        const itemsHtml = renderItemsList(Array.isArray(out.items) ? out.items : []);
+        body = text + itemsHtml;
+      } else if (tool === 'f2') {
+        const itemsHtml = renderItemsList(Array.isArray(out.items) ? out.items : []);
+        const ans = out.answer ? `<details open><summary>生成答案</summary><pre>${escapeHtml(out.answer)}</pre></details>` : '';
+        body = ans + itemsHtml;
+      } else if (tool === 'f1') {
+        body = renderItemsList(Array.isArray(out.items) ? out.items : []);
+      } else {
+        body = `<pre>${escapeHtml(JSON.stringify(out, null, 2))}</pre>`;
+      }
+      const err = out.error ? `<div class=\"muted\">错误：${escapeHtml(out.error)}</div>` : '';
+      return `<details open><summary><strong>[${escapeHtml(sid)}] ${escapeHtml(tool)}</strong> · ${escapeHtml(q)}</summary>${body}${err}</details>`;
+    }
+    function renderAssistantResponse(data) {
+      const decision = data && data.decision || {};
+      const tgt = decision.target || '-';
+      const conf = typeof decision.confidence === 'number' ? decision.confidence.toFixed(2) : '-';
+      const reasons = Array.isArray(decision.reasons) ? decision.reasons.join(', ') : '';
+      let head = `<div class=\"muted\">路由：${escapeHtml(tgt)} · 置信度：${conf}` + (reasons ? ` · 原因：${escapeHtml(reasons)}` : '') + `</div>`;
+      const steps = data && data.results && Array.isArray(data.results.steps) ? data.results.steps : [];
+      let stepsHtml = '';
+      if (steps.length) {
+        stepsHtml += '<div class="muted" style="margin-top:6px;">执行步骤：</div>';
+        for (const s of steps) stepsHtml += renderStepDetail(s);
+      } else {
+        const res = data && data.results || {};
+        const primary = res[tgt] || [];
+        stepsHtml += renderItemsList(Array.isArray(primary) ? primary : []);
+      }
+      const error = data && data.error ? `<div class=\"muted\" style=\"margin-top:6px;\">错误：${escapeHtml(data.error)}</div>` : '';
+      const raw = `<details style=\"margin-top:8px;\"><summary class=\"muted\">查看原始响应</summary><pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre></details>`;
+      bubble('assistant', head + stepsHtml + error + raw);
+    }
+    async function sendMessage() {
+      const q = compose.value.trim();
+      if (!q) return;
+      const mode = (modeSel && modeSel.value) || 'auto';
+      const k = parseInt((topK && topK.value) || '5') || 5;
+      const kb = (kbId && kbId.value) || 'default';
+      bubble('user', escapeHtml(q));
+      compose.value = '';
+      showLoading(true);
+      try {
+        const resp = await fetch('/v1/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ q, mode, k, kb_id: kb }) });
+        const data = await resp.json();
+        renderAssistantResponse(data);
+      } catch (e) {
+        bubble('assistant', `<div class=\"muted\">前端错误：${escapeHtml(String(e))}</div>`);
+      } finally { showLoading(false); }
+    }
+    sendBtn.addEventListener('click', sendMessage);
+    compose.addEventListener('keydown', (e)=>{ if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
+
+    // ===== f2 知识库管理 =====
+    btnKBStatus.addEventListener('click', async ()=>{
+      const kb = kbId.value || 'default';
+      try {
+        const res = await fetch(`/v1/f2/status?kb_id=${encodeURIComponent(kb)}`);
+        const data = await res.json();
+        kbRaw.textContent = JSON.stringify(data, null, 2);
+      } catch(e){ kbRaw.textContent = String(e); }
+    });
+    btnKBReindex.addEventListener('click', async ()=>{
+      const kb = kbId.value || 'default';
+      try {
+        const res = await fetch('/v1/f2/reindex', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ kb_id: kb }) });
+        const data = await res.json();
+        kbRaw.textContent = JSON.stringify(data, null, 2);
+      } catch(e){ kbRaw.textContent = String(e); }
+    });
+    btnKBList.addEventListener('click', async ()=>{
+      const kb = kbId.value || 'default';
+      try {
+        const res = await fetch(`/v1/f2/docs?kb_id=${encodeURIComponent(kb)}`);
+        const data = await res.json();
+        kbRaw.textContent = JSON.stringify(data, null, 2);
+        const list = (data.items || []);
+        kbDocs.innerHTML = '';
+        for (const it of list) {
+          const li = document.createElement('li');
+          const ts = it.mtime ? new Date((it.mtime||0)*1000).toLocaleString() : '';
+          li.innerHTML = `<div>${escapeHtml(it.path)} <small>(${it.size}B${ts?(' · '+ts):''})</small></div>`;
+          kbDocs.appendChild(li);
+        }
+      } catch(e){ kbRaw.textContent = String(e); }
+    });
+    btnKBUpload.addEventListener('click', async ()=>{
+      const kb = kbId.value || 'default';
+      const files = kbFiles.files;
+      if (!files || files.length===0) { alert('请选择文件'); return; }
+      const fd = new FormData();
+      for (const f of files) fd.append('files', f, f.name);
+      try {
+        const res = await fetch(`/v1/f2/upload?kb_id=${encodeURIComponent(kb)}`, { method:'POST', body: fd });
+        const data = await res.json();
+        kbRaw.textContent = JSON.stringify(data, null, 2);
+      } catch(e){ kbRaw.textContent = String(e); }
+    });
+  </script>
+</body>
+</html>
