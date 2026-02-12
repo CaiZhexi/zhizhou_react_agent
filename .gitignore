@@ -1,0 +1,38 @@
+# 日志文件
+traces/
+*.jsonl
+logs/
+
+# Python虚拟环境
+venv/
+env/
+.venv/
+ENV/
+
+# Python编译和缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# 本地环境与测试缓存
+.env
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# 本地数据（如有）
+data/
+*.sqlite3
+*.db
+
+# 本地笔记
+note/

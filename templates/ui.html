@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ReAct Agent UI</title>
+  <style>
+    :root {
+      --bg: #0f1217;
+      --panel: #161b22;
+      --muted: #8b949e;
+      --text: #e6edf3;
+      --accent: #4f9cf0;
+      --border: #2d333b;
+    }
+    body {
+      margin: 0;
+      font-family: "Source Han Serif SC", "Noto Serif SC", "Source Serif 4", "STSong", serif;
+      color: var(--text);
+      background: radial-gradient(1200px 600px at 20% -10%, #1b2430 0%, #0f1217 60%);
+    }
+    .wrap {
+      max-width: 980px;
+      margin: 32px auto;
+      padding: 0 16px 48px;
+    }
+    h1 {
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      margin: 0 0 16px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+    }
+    label {
+      display: block;
+      font-size: 14px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    input, textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #0b0f14;
+      color: var(--text);
+      font-size: 14px;
+    }
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 12px;
+      align-items: center;
+    }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 16px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .output h2 {
+      margin: 0 0 8px;
+      font-size: 16px;
+    }
+    pre {
+      white-space: pre-wrap;
+      background: #0b0f14;
+      border: 1px solid var(--border);
+      padding: 12px;
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .muted {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    @media (min-width: 900px) {
+      .grid {
+        grid-template-columns: 1fr 1fr;
+      }
+      .span-2 {
+        grid-column: span 2;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>ReAct Agent 调试台</h1>
+    <div class="grid">
+      <div class="panel">
+        <label>通用文档上传（/upload）</label>
+        <input id="uploadFile" type="file" />
+        <div class="actions">
+          <button id="uploadBtn">上传文件</button>
+          <span class="muted" id="uploadStatus"></span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label>知识库上传（/kb/upload）</label>
+        <input id="kbFile" type="file" />
+        <div class="row">
+          <div>
+            <label>kb_id</label>
+            <input id="kbUploadId" value="default" />
+          </div>
+          <div>
+            <label>doc_name</label>
+            <input id="kbDocName" placeholder="可选" />
+          </div>
+          <div>
+            <label>&nbsp;</label>
+            <button id="kbUploadBtn">上传到 KB</button>
+          </div>
+        </div>
+        <div class="actions">
+          <span class="muted" id="kbUploadStatus"></span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label>问题</label>
+        <textarea id="question" placeholder="请输入你的问题…"></textarea>
+        <div class="row">
+          <div>
+            <label>kb_id</label>
+            <input id="kb_id" value="default" />
+          </div>
+          <div>
+            <label>top_k</label>
+            <input id="top_k" value="5" />
+          </div>
+          <div>
+            <label>trace</label>
+            <input id="trace" value="true" />
+          </div>
+        </div>
+        <div class="actions">
+          <button id="sendBtn">发送 /chat</button>
+          <span class="muted" id="status"></span>
+        </div>
+      </div>
+
+      <div class="panel output">
+        <h2>回答</h2>
+        <pre id="answer"></pre>
+      </div>
+
+      <div class="panel output span-2">
+        <h2>Trace</h2>
+        <pre id="traceBox"></pre>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const sendBtn = $("sendBtn");
+    const statusEl = $("status");
+    const uploadBtn = $("uploadBtn");
+    const kbUploadBtn = $("kbUploadBtn");
+
+    sendBtn.addEventListener("click", async () => {
+      const question = $("question").value.trim();
+      if (!question) {
+        statusEl.textContent = "请输入问题";
+        return;
+      }
+      statusEl.textContent = "请求中…";
+      sendBtn.disabled = true;
+
+      const payload = {
+        question,
+        kb_id: $("kb_id").value.trim() || "default",
+        top_k: parseInt($("top_k").value || "5", 10),
+        trace: String($("trace").value).toLowerCase() === "true",
+      };
+
+      try {
+        const res = await fetch("/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        $("answer").textContent = data.answer || JSON.stringify(data, null, 2);
+        $("traceBox").textContent = JSON.stringify(data, null, 2);
+        statusEl.textContent = res.ok ? "完成" : "请求失败";
+      } catch (e) {
+        statusEl.textContent = "请求异常";
+        $("traceBox").textContent = String(e);
+      } finally {
+        sendBtn.disabled = false;
+      }
+    });
+
+    uploadBtn.addEventListener("click", async () => {
+      const file = $("uploadFile").files[0];
+      if (!file) {
+        $("uploadStatus").textContent = "请选择文件";
+        return;
+      }
+      $("uploadStatus").textContent = "上传中…";
+      uploadBtn.disabled = true;
+      try {
+        const form = new FormData();
+        form.append("file", file);
+        const res = await fetch("/upload", { method: "POST", body: form });
+        const data = await res.json();
+        $("uploadStatus").textContent = res.ok ? "上传成功" : "上传失败";
+        $("traceBox").textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        $("uploadStatus").textContent = "上传异常";
+        $("traceBox").textContent = String(e);
+      } finally {
+        uploadBtn.disabled = false;
+      }
+    });
+
+    kbUploadBtn.addEventListener("click", async () => {
+      const file = $("kbFile").files[0];
+      if (!file) {
+        $("kbUploadStatus").textContent = "请选择文件";
+        return;
+      }
+      $("kbUploadStatus").textContent = "上传中…";
+      kbUploadBtn.disabled = true;
+      try {
+        const form = new FormData();
+        form.append("file", file);
+        const kbId = $("kbUploadId").value.trim() || "default";
+        const docName = $("kbDocName").value.trim();
+        form.append("kb_id", kbId);
+        if (docName) form.append("doc_name", docName);
+        const res = await fetch("/kb/upload", { method: "POST", body: form });
+        const data = await res.json();
+        $("kbUploadStatus").textContent = res.ok ? "上传成功" : "上传失败";
+        $("traceBox").textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        $("kbUploadStatus").textContent = "上传异常";
+        $("traceBox").textContent = String(e);
+      } finally {
+        kbUploadBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+requests
+flask
+numpy
+faiss-cpu
+pypdf
+python-docx
+openpyxl
